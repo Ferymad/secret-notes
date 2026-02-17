@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Secret Notes 💌</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; }
+    h1 { margin: 0 0 8px; }
+    p { margin-top: 0; opacity: .8; }
+    .grid { display: grid; gap: 16px; grid-template-columns: 1fr; }
+    @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+    textarea, input { width: 100%; padding: 10px; font-size: 14px; box-sizing: border-box; }
+    textarea { min-height: 140px; resize: vertical; }
+    button { padding: 10px 12px; font-size: 14px; cursor: pointer; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; }
+    .small { font-size: 12px; opacity: .8; }
+    .ok { color: #0a7; }
+    .err { color: #c22; }
+    code { word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>Secret Notes 💌</h1>
+  <p>Encrypt/decrypt locally in your browser (GitHub Pages friendly). Share the blob with your girlfriend. 🫶</p>
+  <div class="card">
+    <div class="row">
+      <label style="flex:1">
+        Shared passphrase (don't use something obvious):
+        <input id="pass" type="password" placeholder="e.g., our inside joke + a number" />
+      </label>
+      <button id="gen" title="Generate a strong random passphrase">🎲 Generate</button>
+    </div>
+    <div class="small">Tip: you can agree on a passphrase once (in person) and reuse it. For extra safety, change it sometimes.</div>
+    <div id="status" class="small"></div>
+  </div>
+  <div class="grid" style="margin-top:16px">
+    <div class="card">
+      <h2 style="margin-top:0">Encrypt</h2>
+      <textarea id="plain" placeholder="Write your secret note…"></textarea>
+      <div class="row">
+        <button id="encrypt">🔒 Encrypt</button>
+        <button id="copyEnc">📋 Copy blob</button>
+        <button id="clearPlain">🧹 Clear</button>
+      </div>
+      <div class="small">Encrypted blob (send this):</div>
+      <textarea id="cipher" placeholder="Encrypted blob appears here…"></textarea>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">Decrypt</h2>
+      <textarea id="cipherIn" placeholder="Paste encrypted blob here…"></textarea>
+      <div class="row">
+        <button id="decrypt">🔓 Decrypt</button>
+        <button id="copyDec">📋 Copy message</button>
+        <button id="clearCipher">🧹 Clear</button>
+      </div>
+      <div class="small">Decrypted message:</div>
+      <textarea id="plainOut" placeholder="Decrypted message appears here…"></textarea>
+    </div>
+  </div>
+  <!-- libsodium.js from a CDN (static hosting friendly) -->
+  <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/modules/libsodium-wrappers.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    function b64u(bytes) { return sodium.to_base64(bytes, sodium.base64_variants.URLSAFE_NO_PADDING); }
+    function fromB64u(str) { return sodium.from_base64(str, sodium.base64_variants.URLSAFE_NO_PADDING); }
+    async function ready() { await sodium.ready; setStatus("Crypto ready ✅", "ok"); }
+    function setStatus(msg, cls="") {
+      const el = $("status");
+      el.textContent = msg;
+      el.className = "small " + cls;
+    }
+    function genPass() {
+      // 16 random bytes -> base64url, pretty strong and easy-ish to paste
+      const bytes = sodium.randombytes_buf(16);
+      $("pass").value = b64u(bytes);
+      setStatus("Generated a strong passphrase 🎲 (share it securely once)", "ok");
+    }
+
+    $("gen").addEventListener("click", genPass);
+
+    $("encrypt").addEventListener("click", async () => {
+      const pass = $("pass").value;
+      const plain = $("plain").value;
+      if (!pass || !plain) { setStatus("Passphrase and message required", "err"); return; }
+      try {
+        const salt = sodium.randombytes_buf(16);
+        const key = sodium.crypto_pwhash(32, pass, salt, 3, 64 * 1024, sodium.crypto_pwhash_ALG_DEFAULT);
+        const nonce = sodium.randombytes_buf(24);
+        const cipher = sodium.crypto_secretbox_easy(plain, nonce, key);
+        const blob = JSON.stringify({ s: b64u(salt), n: b64u(nonce), c: b64u(cipher) });
+        $("cipher").value = blob;
+        setStatus("Encrypted! 🎉", "ok");
+      } catch (e) { setStatus("Encryption failed: " + e, "err"); }
+    });
+
+    $("decrypt").addEventListener("click", async () => {
+      const pass = $("pass").value;
+      const blob = $("cipherIn").value;
+      if (!pass || !blob) { setStatus("Passphrase and blob required", "err"); return; }
+      try {
+        const { s, n, c } = JSON.parse(blob);
+        const salt = fromB64u(s);
+        const nonce = fromB64u(n);
+        const cipher = fromB64u(c);
+        const key = sodium.crypto_pwhash(32, pass, salt, 3, 64 * 1024, sodium.crypto_pwhash_ALG_DEFAULT);
+        const plain = sodium.crypto_secretbox_open_easy(cipher, nonce, key);
+        $("plainOut").value = sodium.to_string(plain);
+        setStatus("Decrypted! 🔓", "ok");
+      } catch (e) { setStatus("Decryption failed (wrong passphrase?)", "err"); }
+    });
+
+    $("copyEnc").addEventListener("click", () => { navigator.clipboard.writeText($("cipher").value); setStatus("Copied!", "ok"); });
+    $("copyDec").addEventListener("click", () => { navigator.clipboard.writeText($("plainOut").value); setStatus("Copied!", "ok"); });
+    $("clearPlain").addEventListener("click", () => { $("plain").value = ""; $("cipher").value = ""; });
+    $("clearCipher").addEventListener("click", () => { $("cipherIn").value = ""; $("plainOut").value = ""; });
+
+    ready();
+  </script>
+</body>
+</html>
