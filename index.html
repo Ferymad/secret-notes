@@ -59,7 +59,6 @@
       <textarea id="plainOut" placeholder="Decrypted message appears here…"></textarea>
     </div>
   </div>
-  <!-- libsodium.js from a CDN (static hosting friendly) -->
   <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/modules/libsodium-wrappers.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
@@ -72,48 +71,85 @@
       el.className = "small " + cls;
     }
     function genPass() {
-      // 16 random bytes -> base64url, pretty strong and easy-ish to paste
       const bytes = sodium.randombytes_buf(16);
       $("pass").value = b64u(bytes);
       setStatus("Generated a strong passphrase 🎲 (share it securely once)", "ok");
     }
 
+    function getKeyFromPass(pass, salt) {
+      // Argon2id key derivation (password -> key)
+      // Interactive limits are OK for browsers; you can raise them if you want.
+      const ops = sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE;
+      const mem = sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE;
+      return sodium.crypto_pwhash(
+        sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES,
+        pass, salt, ops, mem, sodium.crypto_pwhash_ALG_ARGON2ID13
+      );
+    }
+
+    function encodeBlob(version, salt, nonce, ct) {
+      // version|salt|nonce|ciphertext (all base64url, joined by ".")
+      return [version, b64u(salt), b64u(nonce), b64u(ct)].join(".");
+    }
+
+    function decodeBlob(blob) {
+      const parts = blob.split(".");
+      if (parts.length !== 4) throw new Error("Blob format invalid (expected 4 parts).");
+      const [version, sSalt, sNonce, sCt] = parts;
+      return { version, salt: fromB64u(sSalt), nonce: fromB64u(sNonce), ct: fromB64u(sCt) };
+    }
+
+    async function encrypt() {
+      const pass = $("pass").value;
+      const msg = $("plain").value;
+      if (!pass) return setStatus("Enter a passphrase first.", "err");
+      if (!msg) return setStatus("Write a message to encrypt.", "err");
+      const salt = sodium.randombytes_buf(sodium.crypto_pwhash_SALTBYTES);
+      const key = getKeyFromPass(pass, salt);
+      const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
+      const ad = null; // optional "associated data"
+      const ct = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(msg, ad, null, nonce, key);
+      const blob = encodeBlob("v1", salt, nonce, ct);
+      $("cipher").value = blob;
+      setStatus("Encrypted ✅ Send the blob.", "ok");
+    }
+
+    async function decrypt() {
+      const pass = $("pass").value;
+      const blob = $("cipherIn").value.trim();
+      if (!pass) return setStatus("Enter the same passphrase used to encrypt.", "err");
+      if (!blob) return setStatus("Paste an encrypted blob to decrypt.", "err");
+      try {
+        const { version, salt, nonce, ct } = decodeBlob(blob);
+        if (version !== "v1") throw new Error("Unknown blob version.");
+        const key = getKeyFromPass(pass, salt);
+        const ad = null;
+        const msg = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(null, ct, ad, nonce, key);
+        $("plainOut").value = msg;
+        setStatus("Decrypted ✅", "ok");
+      } catch (e) {
+        setStatus("Decrypt failed: " + e.message, "err");
+      }
+    }
+
+    async function copyFrom(id) {
+      const el = $(id);
+      el.select();
+      el.setSelectionRange(0, el.value.length);
+      try {
+        await navigator.clipboard.writeText(el.value);
+        setStatus("Copied ✅", "ok");
+      } catch {
+        setStatus("Copy failed (browser permission). You can manually copy.", "err");
+      }
+    }
+
     $("gen").addEventListener("click", genPass);
-
-    $("encrypt").addEventListener("click", async () => {
-      const pass = $("pass").value;
-      const plain = $("plain").value;
-      if (!pass || !plain) { setStatus("Passphrase and message required", "err"); return; }
-      try {
-        const salt = sodium.randombytes_buf(16);
-        const key = sodium.crypto_pwhash(32, pass, salt, 3, 64 * 1024, sodium.crypto_pwhash_ALG_DEFAULT);
-        const nonce = sodium.randombytes_buf(24);
-        const cipher = sodium.crypto_secretbox_easy(plain, nonce, key);
-        const blob = JSON.stringify({ s: b64u(salt), n: b64u(nonce), c: b64u(cipher) });
-        $("cipher").value = blob;
-        setStatus("Encrypted! 🎉", "ok");
-      } catch (e) { setStatus("Encryption failed: " + e, "err"); }
-    });
-
-    $("decrypt").addEventListener("click", async () => {
-      const pass = $("pass").value;
-      const blob = $("cipherIn").value;
-      if (!pass || !blob) { setStatus("Passphrase and blob required", "err"); return; }
-      try {
-        const { s, n, c } = JSON.parse(blob);
-        const salt = fromB64u(s);
-        const nonce = fromB64u(n);
-        const cipher = fromB64u(c);
-        const key = sodium.crypto_pwhash(32, pass, salt, 3, 64 * 1024, sodium.crypto_pwhash_ALG_DEFAULT);
-        const plain = sodium.crypto_secretbox_open_easy(cipher, nonce, key);
-        $("plainOut").value = sodium.to_string(plain);
-        setStatus("Decrypted! 🔓", "ok");
-      } catch (e) { setStatus("Decryption failed (wrong passphrase?)", "err"); }
-    });
-
-    $("copyEnc").addEventListener("click", () => { navigator.clipboard.writeText($("cipher").value); setStatus("Copied!", "ok"); });
-    $("copyDec").addEventListener("click", () => { navigator.clipboard.writeText($("plainOut").value); setStatus("Copied!", "ok"); });
-    $("clearPlain").addEventListener("click", () => { $("plain").value = ""; $("cipher").value = ""; });
+    $("encrypt").addEventListener("click", encrypt);
+    $("decrypt").addEventListener("click", decrypt);
+    $("copyEnc").addEventListener("click", () => copyFrom("cipher"));
+    $("copyDec").addEventListener("click", () => copyFrom("plainOut"));
+    $("clearPlain").addEventListener("click", () => { $("plain").value = ""; });
     $("clearCipher").addEventListener("click", () => { $("cipherIn").value = ""; $("plainOut").value = ""; });
 
     ready();
