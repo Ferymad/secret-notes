@@ -59,7 +59,11 @@
       <textarea id="plainOut" placeholder="Decrypted message appears here…"></textarea>
     </div>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.11/dist/libsodium-wrappers.js"></script>
+  <script type="module">
+    import sodium from 'https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/modules/libsodium-wrappers.js';
+    window.sodium = sodium;
+    window.initApp();
+  </script>
   <script>
     const $ = (id) => document.getElementById(id);
     function b64u(bytes) { return sodium.to_base64(bytes, sodium.base64_variants.URLSAFE_NO_PADDING); }
@@ -74,6 +78,9 @@
         setStatus("Crypto failed to load: " + e.message, "err");
       }
     }
+    window.initApp = async function() {
+      await ready();
+    };
     function setStatus(msg, cls="") {
       const el = $("status");
       el.textContent = msg;
