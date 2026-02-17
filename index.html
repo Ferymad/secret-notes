@@ -59,12 +59,21 @@
       <textarea id="plainOut" placeholder="Decrypted message appears here…"></textarea>
     </div>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/modules/libsodium-wrappers.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.11/dist/libsodium-wrappers.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
     function b64u(bytes) { return sodium.to_base64(bytes, sodium.base64_variants.URLSAFE_NO_PADDING); }
     function fromB64u(str) { return sodium.from_base64(str, sodium.base64_variants.URLSAFE_NO_PADDING); }
-    async function ready() { await sodium.ready; setStatus("Crypto ready ✅", "ok"); }
+    async function ready() { 
+      try {
+        await sodium.ready; 
+        console.log("Sodium ready, version:", sodium.version);
+        setStatus("Crypto ready ✅", "ok");
+      } catch (e) {
+        console.error("Sodium init error:", e);
+        setStatus("Crypto failed to load: " + e.message, "err");
+      }
+    }
     function setStatus(msg, cls="") {
       const el = $("status");
       el.textContent = msg;
@@ -104,14 +113,24 @@
       const msg = $("plain").value;
       if (!pass) return setStatus("Enter a passphrase first.", "err");
       if (!msg) return setStatus("Write a message to encrypt.", "err");
-      const salt = sodium.randombytes_buf(sodium.crypto_pwhash_SALTBYTES);
-      const key = getKeyFromPass(pass, salt);
-      const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
-      const ad = null; // optional "associated data"
-      const ct = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(msg, ad, null, nonce, key);
-      const blob = encodeBlob("v1", salt, nonce, ct);
-      $("cipher").value = blob;
-      setStatus("Encrypted ✅ Send the blob.", "ok");
+      try {
+        console.log("Starting encrypt...", { passLen: pass.length, msgLen: msg.length });
+        const salt = sodium.randombytes_buf(sodium.crypto_pwhash_SALTBYTES);
+        console.log("Salt generated", salt);
+        const key = getKeyFromPass(pass, salt);
+        console.log("Key derived", key);
+        const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
+        console.log("Nonce generated", nonce);
+        const ad = null;
+        const ct = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(msg, ad, null, nonce, key);
+        console.log("Encrypted", ct);
+        const blob = encodeBlob("v1", salt, nonce, ct);
+        $("cipher").value = blob;
+        setStatus("Encrypted ✅ Send the blob.", "ok");
+      } catch (e) {
+        console.error("Encrypt error:", e);
+        setStatus("Encrypt failed: " + e.message, "err");
+      }
     }
 
     async function decrypt() {
