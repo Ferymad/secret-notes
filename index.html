@@ -60,7 +60,7 @@
     </div>
   </div>
   <script type="module">
-    import sodium from 'https://esm.sh/libsodium-wrappers@0.7.16';
+    import sodium from 'https://esm.sh/libsodium-wrappers-sumo@0.7.16';
     window.sodium = sodium;
     window.initApp();
   </script>
@@ -129,7 +129,7 @@
         const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
         console.log("Nonce generated", nonce);
         const ad = null;
-        const ct = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(msg, ad, null, nonce, key);
+        const ct = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(sodium.from_string(msg), ad, null, nonce, key);
         console.log("Encrypted", ct);
         const blob = encodeBlob("v1", salt, nonce, ct);
         $("cipher").value = blob;
@@ -151,7 +151,7 @@
         const key = getKeyFromPass(pass, salt);
         const ad = null;
         const msg = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(null, ct, ad, nonce, key);
-        $("plainOut").value = msg;
+        $("plainOut").value = sodium.to_string(msg);
         setStatus("Decrypted ✅", "ok");
       } catch (e) {
         setStatus("Decrypt failed: " + e.message, "err");
