@@ -61,30 +61,24 @@
   </div>
   <script type="module">
     import sodium from 'https://esm.sh/libsodium-wrappers-sumo@0.7.16';
+    await sodium.ready;
     window.sodium = sodium;
-    window.initApp();
+    console.log("Sodium ready, version:", sodium.version);
+    const statusEl = document.getElementById('status');
+    if (statusEl) statusEl.textContent = "Crypto ready ✅";
   </script>
   <script>
     const $ = (id) => document.getElementById(id);
     function b64u(bytes) { return sodium.to_base64(bytes, sodium.base64_variants.URLSAFE_NO_PADDING); }
     function fromB64u(str) { return sodium.from_base64(str, sodium.base64_variants.URLSAFE_NO_PADDING); }
-    async function ready() { 
-      try {
-        await sodium.ready; 
-        console.log("Sodium ready, version:", sodium.version);
-        setStatus("Crypto ready ✅", "ok");
-      } catch (e) {
-        console.error("Sodium init error:", e);
-        setStatus("Crypto failed to load: " + e.message, "err");
-      }
-    }
-    window.initApp = async function() {
-      // sodium is loaded as module, ready() is called after import
-    };
     function setStatus(msg, cls="") {
       const el = $("status");
       el.textContent = msg;
       el.className = "small " + cls;
+      if (cls === "ok") {
+        // crypto loaded successfully, trigger ready check
+        setTimeout(() => { if ($("status").textContent === msg) $("status").textContent += " ✅"; }, 100);
+      }
     }
     function genPass() {
       const bytes = sodium.randombytes_buf(16);
